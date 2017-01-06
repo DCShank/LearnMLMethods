@@ -20,4 +20,5 @@ executable naive-bayes
   build-depends:       base >= 4.7 && < 5,
                        cassava,
                        bytestring,
-                       vector
+                       vector,
+                       containers
