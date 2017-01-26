@@ -3,24 +3,25 @@ module Main where
 import Data.List (sort)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Vector as V
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 -- from cassava
 import Data.Csv
 
 -- a simple type alias for data
 type BaseballStats = (BL.ByteString, Int, BL.ByteString, Int)
 
+fourth :: (a,b,c,d) -> d
+fourth (_,_,_,d) = d
+
+baseballStats :: BL.ByteString -> Either String (V.Vector BaseballStats)
+baseballStats = decode NoHeader
+
 main :: IO ()
 main = do
     csvData <- BL.readFile "batting.csv"
-    let v = decode NoHeader csvData :: Either String (V.Vector BaseballStats)
-    -- let summed = fmap (V.foldr summer 0) v
-    let summed = v >>= \x -> Right (V.foldr summer 0 x) -- Testing bind
-    let teams = fmap (sort . V.foldr teamGet []) v
+    let summed = fmap (V.foldr summer 0) (baseballStats csvData)
     putStrLn $ "Total atBats was: " ++ (show summed)
-    putStrLn $ "Teams were: " ++ (show teams)
-    where summer (name, year, team, atBats) n = n + atBats
-          teamGet (name, year, team, atVats) xs = uniqueAdd team xs
+    where summer = (+) . fourth
 
 -- Maybe use sets instead of this, or maybe there's some 
 -- other predefined function that achieves the same thing.
@@ -64,14 +65,15 @@ pdfNorm val (mean, var) = firstFac * expFac
 -- This should all have been done using Data! Whoops!
 -- Would have been very convenient
 type Statistics     = (Float, Float) -- (Mean, Var)
-type AttributeData  = V.Vector Float
-type ClassifierData = (String, Float, V.Vector AttributeData)
-type Classifier     = (String, Float, V.Vector Statistics)
+type AttributeData  = [Float]
+type ClassifierData = (String, Float, [AttributeData])
+type Classifier     = (String, Float, [Statistics])
 
 classifierStats :: ClassifierData -> Classifier
 classifierStats (cls, prob, atts) = (cls, prob, statCalc)
-    where statCalc= fmap (meanVar) atts
+    where statCalc= fmap meanVar atts
 
+-- Helper for selector
 maxPairr :: (Ord a) => (b, a) -> (b, a) -> (b, a)
 maxPairr (x, a) (y, b)
     | a > b     = (x, a)
@@ -79,16 +81,22 @@ maxPairr (x, a) (y, b)
     | otherwise = (x, a)
 
 -- Selects the classifier with the greatest pdfthing from a list of them
-selector :: (Foldable f, Functor f) => f (String, Float) -> String
+selector :: (Foldable f) => f (String, Float) -> String
 selector pairs = fst (foldl1 maxPairr pairs)
 
 --normFold :: (Functor f) => Classifier -> f Float -> (String, Float)
 --normFold (cls, prob, attstats) atts = (cls, normed)
 --    where normed = foldl (*) (zipWith pdfNorm atts attstats) prob
 
-normFold :: V.Vector Float -> Classifier -> (String, Float)
+normFold :: [Float] -> Classifier -> (String, Float)
 normFold atts (cls, prob, attstats) = (cls, normed)
-    where normed = foldl (*) prob (V.zipWith pdfNorm atts attstats)
+    where normed = foldl (*) prob (zipWith pdfNorm atts attstats)
 
-bayes :: (Functor f, Foldable f) => f Classifier -> V.Vector Float -> String
+-- Given a list of classifiers and datum, will attempt to classify the datum.
+bayes :: (Functor f, Foldable f) => f Classifier -> [Float] -> String
 bayes classes atts = selector (fmap (normFold atts) classes)
+
+-- Used for constructing (key, AttributeData) pairs.
+lister :: Ord k => k -> [a] -> [a] -> [a]
+lister key newval oldval = (head newval) : oldval 
+
