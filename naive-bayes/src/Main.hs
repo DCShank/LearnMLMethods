@@ -26,22 +26,20 @@ main = do
     let total = foldr totaler 0 sums
     let list = M.toList sums
     --putStrLn $ "preCleaning " ++ (show list)
-    let cleanList = fmap cleanTuple list :: [(BL.ByteString, Float, [(Integer,Integer)])]
+    let cleanList = fmap cleanTuple list
     --putStrLn $ "stuffs " ++ (show cleanList)
     let curriedStat = statify (fromIntegral total)
     let statList = map (statifyCorrect (fromIntegral total)) cleanList
     --putStrLn $ "these numbers " ++ (show statList)
-    let cls = bayes statList [50]
-    let normFolded = fmap (normFold [50]) statList
-    putStrLn $ "after norming " ++ (show normFolded)
+    let cls = bayes statList [1000000]
+    --let normFolded = fmap (normFold [50]) statList
+    --putStrLn $ "after norming " ++ (show normFolded)
     
     --putStrLn $ "Total atBats was: " ++ (show summed)
     putStrLn $ "team was" ++ (show cls)
     where summer = (+) . fourth
           mapper (_,_,team,atBats) = applyDatum team atBats
           totaler (players,_) = (+) players
-          applyCurry (cls,num,probs) total =
-                (cls, num/total, (map (varMeanFromPair num) probs))
 
 meanFromSum elements sum = sum / elements
 
