@@ -20,16 +20,18 @@ baseballStats = decode NoHeader
 main :: IO ()
 main = do
     csvData <- BL.readFile "batting.csv"
-    --let summed = F.foldr summer 0 (baseballStats csvData)
+    let summed = F.foldr summer 0 (baseballStats csvData)
     let sums = F.foldr mapper M.empty (baseballStats csvData) ::
                             M.Map BL.ByteString (Int, [(Integer,Integer)])
     let total = foldr totaler 0 sums
     let list = M.toList sums
-    let cleanList = fmap cleanTuple list
-    putStrLn $ "stuffs " ++ (show cleanList)
+    --putStrLn $ "preCleaning " ++ (show list)
+    let cleanList = fmap cleanTuple list :: [(BL.ByteString, Float, [(Integer,Integer)])]
+    --putStrLn $ "stuffs " ++ (show cleanList)
     let curriedStat = statify (fromIntegral total)
-    let statList = map curriedStat cleanList
-    let cls = bayes statList [1]
+    let statList = map (statifyCorrect (fromIntegral total)) cleanList
+    --putStrLn $ "these numbers " ++ (show statList)
+    let cls = bayes statList [50]
     let normFolded = fmap (normFold [50]) statList
     putStrLn $ "after norming " ++ (show normFolded)
     
@@ -38,11 +40,19 @@ main = do
     where summer = (+) . fourth
           mapper (_,_,team,atBats) = applyDatum team atBats
           totaler (players,_) = (+) players
+          applyCurry (cls,num,probs) total =
+                (cls, num/total, (map (varMeanFromPair num) probs))
 
 meanFromSum elements sum = sum / elements
-varFromSums elements sum sumSquared = (sumSquared - (sum^2)) / (elements - 1)
-varMeanFromSums n sum sumSq = (meanFromSum n sum,varFromSums n sum sumSq)
-varMeanFromPair :: (Floating b) => b -> (b,b) -> (b,b)
+
+
+varFromSums elements sum sumSquared = (sumSquared - (sum^2)/elements) / (elements - 1)
+
+varMeanFromSums :: (Floating b, Integral a) => b -> a -> a -> (b,b)
+varMeanFromSums n sum sumSq = 
+    (meanFromSum n (fromIntegral sum),varFromSums n (fromIntegral sum) (fromIntegral sumSq))
+
+varMeanFromPair :: (Floating b, Integral a) => b -> (a,a) -> (b,b)
 varMeanFromPair n (sum,sumSq) = varMeanFromSums n sum sumSq
 
 relativeProb :: (Floating a) => a -> a -> a
@@ -55,6 +65,13 @@ pdfNorm val (mean, var) = firstFac * expFac
 
 cleanTuple :: (Integral b, Num d) => (a,(b,c)) -> (a,d,c)
 cleanTuple (a,(b,c)) = (a,fromIntegral b,c)
+
+cleanList :: (Integral b, Num d) => [(a,(b,c))] -> [(a,d,c)]
+cleanList = map cleanTuple
+
+type BS = BL.ByteString
+statifyCorrect :: (Floating a, Integral b) => a -> (BS, a, [(b,b)]) -> (BS, a, [(a,a)])
+statifyCorrect tot (cls, num, prb) = (cls, num/tot, (map (varMeanFromPair num) prb))
 
 statifyOne :: (Floating a, Integral b) => a -> (c,b,[(t,t)]) -> (c,a,[(t,t)])
 statifyOne n (a,k,l) = (a,(fromIntegral k)/n,l)
