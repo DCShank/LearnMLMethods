@@ -28,7 +28,6 @@ main = do
     --putStrLn $ "preCleaning " ++ (show list)
     let cleanList = fmap cleanTuple list
     --putStrLn $ "stuffs " ++ (show cleanList)
-    let curriedStat = statify (fromIntegral total)
     let statList = map (statifyCorrect (fromIntegral total)) cleanList
     --putStrLn $ "these numbers " ++ (show statList)
     let cls = bayes statList [1000000]
@@ -61,6 +60,7 @@ pdfNorm val (mean, var) = firstFac * expFac
     where firstFac = 1 / (sqrt ( 2 * pi * var))
           expFac   = exp ((-(val-mean) ** 2) / (2*var))
 
+-- Special function for cleaning the tuples produced in this
 cleanTuple :: (Integral b, Num d) => (a,(b,c)) -> (a,d,c)
 cleanTuple (a,(b,c)) = (a,fromIntegral b,c)
 
@@ -70,18 +70,6 @@ cleanList = map cleanTuple
 type BS = BL.ByteString
 statifyCorrect :: (Floating a, Integral b) => a -> (BS, a, [(b,b)]) -> (BS, a, [(a,a)])
 statifyCorrect tot (cls, num, prb) = (cls, num/tot, (map (varMeanFromPair num) prb))
-
-statifyOne :: (Floating a, Integral b) => a -> (c,b,[(t,t)]) -> (c,a,[(t,t)])
-statifyOne n (a,k,l) = (a,(fromIntegral k)/n,l)
-
-statifyTwo :: (Floating a, Integral b) => a -> (c,a,[(b,b)]) -> (c,a,[(a,a)])
-statifyTwo n (a,b,l) = 
-    (a,b,(fmap (varMeanFromPair n) (map (\(x,y) -> (fromIntegral x, fromIntegral y)) l)))
-
-statify n = (statifyTwo n) . (statifyOne n)
-
-type Statistics = (Float, Float) -- (mean, var)
-type Classifier = (BL.ByteString, Float, [Statistics])
 
 -- Frustrated by the tools for maps. This seems like a pretty simple function to
 -- want but it was completely absent. Maybe it has something to do with purity?
@@ -96,7 +84,7 @@ statter val Nothing = (1,[(vali,vali^2)])
     where vali = fromIntegral val
 statter val (Just (num,[(sum,sumsq)])) = (num+1,[(sum+vali,sumsq+vali^2)])
     where vali = fromIntegral val
-
+fI = fromIntegral
 -- Jesus christ this situation is gross.
 -- I'm doing it in this assbackwards way because I have this idea that
 -- maybe it should be generalizable, so the functions need to give a list of
@@ -113,6 +101,9 @@ applyDatum = applyToKey statter
 -- NAIVE BAYES CLASSIFIER --
 ----------------------------
 
+type Statistics = (Float, Float) -- (mean, var)
+type Classifier a = (a, Float, [Statistics])
+
 -- Helper for selector
 maxPairr :: (Ord a) => (b, a) -> (b, a) -> (b, a)
 maxPairr (x, a) (y, b)
@@ -124,47 +115,16 @@ maxPairr (x, a) (y, b)
 selector :: (Foldable f) => f (s, Float) -> s
 selector pairs = fst (foldl1 maxPairr pairs)
 
---normFold :: (Functor f) => Classifier -> f Float -> (String, Float)
---normFold (cls, prob, attstats) atts = (cls, normed)
---    where normed = foldl (*) (zipWith pdfNorm atts attstats) prob
-
-normFold :: [Float] -> Classifier -> (BL.ByteString, Float)
+normFold :: [Float] -> Classifier a -> (a, Float)
 normFold atts (cls, prob, attstats) = (cls, normed)
     where normed = foldl (*) prob (zipWith pdfNorm atts attstats)
 
+
 -- Given a list of classifiers and datum, will attempt to classify the datum.
-bayes :: (Functor f, Foldable f) => f Classifier -> [Float] -> BL.ByteString
+bayes :: (Functor f, Foldable f) => f (Classifier a) -> [Float] -> a
 bayes classes atts = selector (fmap (normFold atts) classes)
 
 
 
--- Old stuff I no longer need for this project.
-
--- No longer needed!
-uniqueAdd :: (Eq a, Ord a) => a -> [a] -> [a]
-uniqueAdd item aList
-    | item `elem` aList = aList
-    | otherwise         = item : aList
-
--- A little search into the docs indicates that this is already done by a function
--- called genericLength.
-nLength :: (Foldable t, Num b) => t a -> b
-nLength = fromIntegral . length
-
--- It would probably be prudent to use a stats package for all the
--- stats stuff instead of these functions.
 mean :: (Floating a, Functor f, Foldable f) => f a -> a
-mean xs = (sum xs) / (nLength xs)
-
---variance :: (Floating a) => [a] -> a
---variance xs = sum (fmap varCalc xs) / (nLength xs - 1)
---    where varCalc x = (x - mean xs) ** 2
-
-variance :: (Floating a, Functor f, Foldable f) => f a -> a
-variance xs = ((expectedSquared) - (meanSquared)) / (nLength xs - 1)
-    where expectedSquared = sum (fmap (\x -> x ** 2) xs)
-          meanSquared = nLength xs * (mean xs) ** 2
-
-meanVar :: (Floating a, Functor f, Foldable f) => f a -> (a,a)
-meanVar xs = (mean xs, variance xs)
-
+mean xs = (sum xs) / (fromIntegral (length xs))
