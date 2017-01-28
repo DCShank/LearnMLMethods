@@ -11,6 +11,10 @@ import Data.Csv.Streaming
 -- a simple type alias for data
 type BaseballStats = (BL.ByteString, Int, BL.ByteString, Int)
 type ChickenStats = (Int, Int, BL.ByteString)
+type SynthStats = (BL.ByteString, Double, Double, Int)
+
+synthStats :: BL.ByteString -> Records SynthStats
+synthStats = decode NoHeader
 
 chickenStats :: BL.ByteString -> Records ChickenStats
 chickenStats = decode NoHeader
@@ -30,15 +34,15 @@ main = do
     let cls = bayes bayesTestList [150] -- Arbitrary values not corresponding to any
                                             -- real player
 
-    -- Testing with chicken feed to weight data indicates reasonable results for
-    -- one attribute. Still looking for multi attribute raw data.
-    chickData <- BL.readFile "chickwts.csv"
-    let chicksums = F.foldr chickmap M.empty (chickenStats chickData)
-    let chicktot = foldr totaler 0 chicksums
-    let chickTest = sumMapToStats total chicksums
-    let normedChick = fmap (normFold [360]) chickTest
-    let feed = bayes chickTest [360]
-    putStrLn $ "chicken stuff " ++ (show chickTest)
+    -- Testing with synthetic data works I guess
+    synthData <- BL.readFile "synth.te.csv"
+    let synthsums = F.foldr synth M.empty (synthStats synthData)
+    let synthtot = foldr totaler 0 synthsums
+    let synthTest = sumMapToStats synthtot synthsums
+    let normedChick = fmap (normFold [0.25,0.25]) synthTest
+    let feed = bayes synthTest [(-0.45),0.825]
+    putStrLn $ "synth total" ++ (show synthtot)
+    putStrLn $ "synthen stuff " ++ (show synthTest)
     
     -- These are the intermediate lists/calculations. Useful for testing.
     --let list = M.toList sums
@@ -52,14 +56,18 @@ main = do
     --putStrLn $ "After statification \n" ++ (show statList)
     --putStrLn $ "After norming (this would be done by bayes \n" ++ (show normFolded)
     
-    putStrLn $ "feed was " ++ (show feed)
+    putStrLn $ "class was " ++ (show feed)
     putStrLn $ "team was " ++ (show cls)
+
     -- Almost by necessity you need a function to unpack the data to feed it into your
     -- functions. I felt that tuple unpacking was simpler than learning cassava further.
+    -- It's also convenient to just define these functions in a where statement I guess.
     where mapper (_,_,team,atBats) = applyDatum team (fromIntegral atBats)
+          -- When I use years I end up getting NaN's going from sums to stats.
           mapper2 (_,year,team,atBats) = applyData team [year,atBats] -- atBats and Years
           chickmap (_,wgt,feed) = applyDatum feed (fromIntegral wgt)
-          totaler (players,_) = (+) players -- Totals
+          synth (_,x,y,c) = applyData c [x,y]
+          totaler (val,_) = (+) val -- Totals
 
 ---------------------
 -- FORMATTING DATA --
@@ -123,8 +131,8 @@ applyData = applyToKey listSummer
 -- NAIVE BAYES CLASSIFIER --
 ----------------------------
 
-type Statistics = (Float, Float) -- (mean, var)
-type Classifier a = (a, Float, [Statistics])
+type Statistics = (Double, Double) -- (mean, var)
+type Classifier a = (a, Double, [Statistics])
 -- Wow! Type inference is amazing. I assumed that because I added a type parameter it
 -- would need to be specified everywhere but apparently it _just works_
 -- I should still maybe consider making this a data type
@@ -137,7 +145,7 @@ maxPairr (x, a) (y, b)
     | otherwise = (x, a)
 
 -- Selects the classifier with the greatest pd from a list of them
-selector :: (Foldable f) => f (s, Float) -> s
+selector :: (Foldable f) => f (s, Double) -> s
 selector pairs = fst (foldl1 maxPairr pairs)
 
 -- Finds the normal probability density function.
@@ -146,12 +154,12 @@ pdfNorm val (mean, var) = firstFac * expFac
     where firstFac = 1 / (sqrt ( 2 * pi * var))
           expFac   = exp ((-(val-mean) ** 2) / (2*var))
 
-normFold :: [Float] -> Classifier a -> (a, Float)
+normFold :: [Double] -> Classifier a -> (a, Double)
 normFold atts (cls, prob, attstats) = (cls, normed)
     where normed = foldl (*) prob (zipWith pdfNorm atts attstats)
 
 -- Given a list of classifiers and datum, will attempt to classify the datum.
-bayes :: (Functor f, Foldable f) => f (Classifier a) -> [Float] -> a
+bayes :: (Functor f, Foldable f) => f (Classifier a) -> [Double] -> a
 bayes classes atts = selector (fmap (normFold atts) classes)
 
 -- This is a really handsome function :)
