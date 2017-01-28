@@ -10,6 +10,10 @@ import Data.Csv.Streaming
 
 -- a simple type alias for data
 type BaseballStats = (BL.ByteString, Int, BL.ByteString, Int)
+type ChickenStats = (Int, Int, BL.ByteString)
+
+chickenStats :: BL.ByteString -> Records ChickenStats
+chickenStats = decode NoHeader
 
 fourth :: (a,b,c,d) -> d
 fourth (_,_,_,d) = d
@@ -20,54 +24,100 @@ baseballStats = decode NoHeader
 main :: IO ()
 main = do
     csvData <- BL.readFile "batting.csv"
-    let summed = F.foldr summer 0 (baseballStats csvData)
-    let sums = F.foldr mapper M.empty (baseballStats csvData)
+    let sums = F.foldr mapper2 M.empty (baseballStats csvData)
     let total = foldr totaler 0 sums
-    let list = M.toList sums
-    --putStrLn $ "preCleaning " ++ (show list)
-    let cleanList = fmap cleanTuple list
-    --putStrLn $ "stuffs " ++ (show cleanList)
-    let statList = map (sumsToStats (fromIntegral total)) cleanList
-    --putStrLn $ "these numbers " ++ (show statList)
-    let cls1 = bayes statList [1000000]
-    let cls2 = bayes statList [1]
-    let cls3 = bayes statList [200]
-    --let normFolded = fmap (normFold [50]) statList
-    --putStrLn $ "after norming " ++ (show normFolded)
+    let bayesTestList = sumMapToStats total sums
+    let cls = bayes bayesTestList [1900,50] -- Arbitrary values not corresponding to any
+                                            -- real player
+
+    -- Testing with chicken feed to weight data indicates reasonable results for
+    -- one attribute. Still looking for multi attribute raw data.
+    chickData <- BL.readFile "chickwts.csv"
+    let chicksums = F.foldr chickmap M.empty (chickenStats chickData)
+    let chicktot = foldr totaler 0 chicksums
+    let chickTest = sumMapToStats total chicksums
+    let normedChick = fmap (normFold [360]) chickTest
+    let feed = bayes chickTest [360]
+    putStrLn $ "chicken stuff " ++ (show chickTest)
     
-    --putStrLn $ "Total atBats was: " ++ (show summed)
-    putStrLn $ "team was" ++ (show cls1) ++ (show cls2) ++ (show cls3)
-    where summer = (+) . fourth
-          mapper (_,_,team,atBats) = applyDatum team atBats
-          totaler (players,_) = (+) players
+    -- These are the intermediate lists/calculations. Useful for testing.
+    --let list = M.toList sums
+    --let cleanedList = cleanList list
+    --let statList = map (sumsToStats (fromIntegral total)) cleanedList
+    --let normFolded = fmap (normFold [1900,50]) statList
+
+    -- Intermediate print statements.
+    --putStrLn $ "Pre-cleaning \n" ++ (show list)
+    --putStrLn $ "Post-cleaning \n" ++ (show cleanList)
+    --putStrLn $ "After statification \n" ++ (show statList)
+    --putStrLn $ "After norming (this would be done by bayes \n" ++ (show normFolded)
+    
+    putStrLn $ "feed was " ++ (show feed)
+    putStrLn $ "team was " ++ (show cls)
+    -- Almost by necessity you need a function to unpack the data to feed it into your
+    -- functions. I felt that tuple unpacking was simpler than learning cassava further.
+    where mapper (_,_,team,atBats) = applyDatum team atBats -- Testing on just atBats
+          mapper2 (_,year,team,atBats) = applyData team [year,atBats] -- atBats and Years
+          chickmap (_,wgt,feed) = applyDatum feed wgt
+          totaler (players,_) = (+) players -- Totals all players
 
 ---------------------
 -- FORMATTING DATA --
 ---------------------
 
+-- Function that takes the map with key as the class and value as the summed attribute data
+-- and translates that into 
+sumMapToStats total = (map (sumsToStats (fromIntegral total)) . cleanList . M.toList)
+
 -- Special function for "cleaning" the tuples produced in this
-cleanTuple :: (Integral b, Num d) => (a,(b,c)) -> (a,d,c)
-cleanTuple (a,(b,c)) = (a,fromIntegral b,c)
+cleanTuple :: (Integral b, Num d) => (a,(b,[(b,b)])) -> (a,d,[(d,d)])
+cleanTuple (a,(b,c)) = (a,fromIntegral b,fmap (\(x,y) -> (fI x,fI y)) c)
+    where fI = fromIntegral
 
-cleanList :: (Integral b, Num d) => [(a,(b,c))] -> [(a,d,c)]
-cleanList = map cleanTuple
+cleanList = fmap cleanTuple
 
-sumsToStats :: (Floating a, Integral b) => a -> (c, a, [(b,b)]) -> (c, a, [(a,a)])
+-- varFromMeanPair take Integrals by necessity because the input from the baseball
+-- data was Int. This is bad, but I'm not sure how to generalize it. My Type fu is 
+-- too weak.
+sumsToStats :: (Floating a) => a -> (c, a, [(a,a)]) -> (c, a, [(a,a)])
 sumsToStats tot (cls, num, prb) = (cls, num/tot, (map (varMeanFromPair num) prb))
 
+-- takes a parameter and the value at a certain key, applies a function to those
+-- and then sets that as the value at that key.
+-- Incredibly surprised this wasn't a predefined function. All proper map functions
+-- required that the supplied function take the same input as the maps values.
 applyToKey :: (Ord k) => (a -> Maybe b -> b) -> k -> a -> M.Map k b -> M.Map k b
 applyToKey func key val map = M.insert key (func val (M.lookup key map)) map
 
+-- Takes a value and a pair of (sum,sigma(x^2)) and adds another value to it
 sumAndSqSum :: Num a => a -> (a,a) -> (a,a)
 sumAndSqSum num (oldSum, oldSqSum) = (oldSum + num, oldSqSum + num^2)
 
+-- Special case for if you only have a single attribute to apply
 summer :: (Num a) => a -> Maybe (a,[(a,a)]) -> (a,[(a,a)])
 summer val Nothing = (1,[(val,val^2)])
 summer val (Just (num,list)) = (num+1,fmap (sumAndSqSum val) list)
 
+-- Sums a list of elements and counts the number of elements
+-- This would be used if you had more than one attributes to sum up
+listSummer :: (Num a) => [a] -> Maybe (a,[(a,a)]) -> (a,[(a,a)])
+listSummer vals Nothing = (1,initList)
+    where initList = fmap (\x -> (x,x^2)) vals -- In case of an empty key
+listSummer vals (Just (num,list)) = (num+1,zipWith sumAndSqSum vals list)
+
+
+-- These just help me understand what's happening. In a more general case you
+-- can just curry applyToKey with whatever function you want
+-- Type inference is incredible
+type SummedData k a = M.Map k (a,[(a,a)])
+
 applyDatum ::
-    (Ord k, Num a) => k -> a -> M.Map k (a,[(a,a)]) -> M.Map k (a,[(a,a)])
+    (Ord k, Num a) => k -> a -> SummedData k a -> SummedData k a
 applyDatum = applyToKey summer
+
+applyData ::
+    (Ord k, Num a) => k -> [a] -> SummedData k a -> SummedData k a
+applyData = applyToKey listSummer
 
 ----------------------------
 -- NAIVE BAYES CLASSIFIER --
@@ -86,10 +136,11 @@ maxPairr (x, a) (y, b)
     | a < b     = (y, b)
     | otherwise = (x, a)
 
--- Selects the classifier with the greatest pdfthing from a list of them
+-- Selects the classifier with the greatest pd from a list of them
 selector :: (Foldable f) => f (s, Float) -> s
 selector pairs = fst (foldl1 maxPairr pairs)
 
+-- Finds the normal probability density function.
 pdfNorm :: (Floating a) => a -> (a,a) -> a
 pdfNorm val (mean, var) = firstFac * expFac
     where firstFac = 1 / (sqrt ( 2 * pi * var))
@@ -103,7 +154,7 @@ normFold atts (cls, prob, attstats) = (cls, normed)
 bayes :: (Functor f, Foldable f) => f (Classifier a) -> [Float] -> a
 bayes classes atts = selector (fmap (normFold atts) classes)
 
-
+-- This is a really handsome function :)
 mean :: (Floating a, Functor f, Foldable f) => f a -> a
 mean xs = (sum xs) / (fromIntegral (length xs))
 
@@ -114,9 +165,9 @@ mean xs = (sum xs) / (fromIntegral (length xs))
 meanFromSum elements sum = sum / elements
 varFromSums elements sum sumSquared = (sumSquared - (sum^2)/elements) / (elements - 1)
 
-varMeanFromSums :: (Floating b, Integral a) => b -> a -> a -> (b,b)
+varMeanFromSums :: (Floating b) => b -> b -> b -> (b,b)
 varMeanFromSums n sum sumSq = 
-    (meanFromSum n (fromIntegral sum),varFromSums n (fromIntegral sum) (fromIntegral sumSq))
+    (meanFromSum n (sum),varFromSums n (sum) (sumSq))
 
-varMeanFromPair :: (Floating b, Integral a) => b -> (a,a) -> (b,b)
+varMeanFromPair :: (Floating b) => b -> (b,b) -> (b,b)
 varMeanFromPair n (sum,sumSq) = varMeanFromSums n sum sumSq
