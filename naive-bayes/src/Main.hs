@@ -28,10 +28,10 @@ baseballStats = decode NoHeader
 main :: IO ()
 main = do
     csvData <- BL.readFile "batting.csv"
-    let sums = F.foldr mapper M.empty (baseballStats csvData)
+    let sums = F.foldr mapper2 M.empty (baseballStats csvData)
     let total = foldr totaler 0 sums
     let bayesTestList = sumMapToStats total sums
-    let cls = bayes bayesTestList [150] -- Arbitrary values not corresponding to any
+    let cls = bayes bayesTestList [1988,100] -- Arbitrary values not corresponding to any
                                             -- real player
 
     -- Testing with synthetic data works I guess
@@ -40,31 +40,36 @@ main = do
     let synthtot = foldr totaler 0 synthsums
     let synthTest = sumMapToStats synthtot synthsums
     let normedChick = fmap (normFold [0.25,0.25]) synthTest
-    let feed = bayes synthTest [(-0.45),0.825]
-    putStrLn $ "synth total" ++ (show synthtot)
-    putStrLn $ "synthen stuff " ++ (show synthTest)
+    let clsnum = bayes synthTest [(-0.45),0.825]
+    --putStrLn $ "synth total" ++ (show synthtot)
+    --putStrLn $ "synthen stuff " ++ (show synthTest)
     
     -- These are the intermediate lists/calculations. Useful for testing.
-    --let list = M.toList sums
-    --let cleanedList = cleanList list
-    --let statList = map (sumsToStats (fromIntegral total)) cleanedList
-    --let normFolded = fmap (normFold [1900,50]) statList
+{-
+    let list = M.toList sums
+    let cleanedList = cleanList list
+    let statList = map (sumsToStats total) cleanedList
+    let normFolded = fmap (normFold [1949,50]) statList
+
 
     -- Intermediate print statements.
-    --putStrLn $ "Pre-cleaning \n" ++ (show list)
-    --putStrLn $ "Post-cleaning \n" ++ (show cleanList)
-    --putStrLn $ "After statification \n" ++ (show statList)
-    --putStrLn $ "After norming (this would be done by bayes \n" ++ (show normFolded)
-    
-    putStrLn $ "class was " ++ (show feed)
+
+    putStrLn $ "Pre-cleaning \n" ++ (show list)
+    putStrLn $ "Post-cleaning \n" ++ (show cleanedList)
+    putStrLn $ "After statification \n" ++ (show statList)
+    putStrLn $ "After norming (this would be done by bayes \n" ++ (show normFolded)
+ -}   
+
+    putStrLn $ "synth class was " ++ (show clsnum)
     putStrLn $ "team was " ++ (show cls)
 
     -- Almost by necessity you need a function to unpack the data to feed it into your
     -- functions. I felt that tuple unpacking was simpler than learning cassava further.
     -- It's also convenient to just define these functions in a where statement I guess.
+    -- I use fromIntegral so that the rest of the functions can work on Floating or Num.
     where mapper (_,_,team,atBats) = applyDatum team (fromIntegral atBats)
           -- When I use years I end up getting NaN's going from sums to stats.
-          mapper2 (_,year,team,atBats) = applyData team [year,atBats] -- atBats and Years
+          mapper2 (_,year,team,atBats) = applyData team [fromIntegral year,fromIntegral atBats]
           chickmap (_,wgt,feed) = applyDatum feed (fromIntegral wgt)
           synth (_,x,y,c) = applyData c [x,y]
           totaler (val,_) = (+) val -- Totals
@@ -149,10 +154,20 @@ selector :: (Foldable f) => f (s, Double) -> s
 selector pairs = fst (foldl1 maxPairr pairs)
 
 -- Finds the normal probability density function.
+{-
 pdfNorm :: (Floating a) => a -> (a,a) -> a
 pdfNorm val (mean, var) = firstFac * expFac
     where firstFac = 1 / (sqrt ( 2 * pi * var))
           expFac   = exp ((-(val-mean) ** 2) / (2*var))
+-}
+
+pdfNorm :: (Floating a, Ord a) => a -> (a,a) -> a
+pdfNorm val (mean, var)
+    | var > 0 = firstFac * expFac
+    | otherwise = 0
+    where firstFac = 1 / (sqrt ( 2 * pi * var))
+          expFac   = exp ((-(val-mean) ** 2) / (2*var))
+
 
 normFold :: [Double] -> Classifier a -> (a, Double)
 normFold atts (cls, prob, attstats) = (cls, normed)
@@ -171,6 +186,7 @@ mean xs = (sum xs) / (fromIntegral (length xs))
 -----------------
 
 meanFromSum elements sum = sum / elements
+-- Divide by zero if there's only one element?
 varFromSums elements sum sumSquared = (sumSquared - (sum^2)/elements) / (elements - 1)
 
 varMeanFromSums :: (Floating a) => a -> a -> a -> (a,a)
