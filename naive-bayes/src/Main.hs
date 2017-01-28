@@ -137,7 +137,7 @@ applyData = applyToKey listSummer
 ----------------------------
 
 type Statistics = (Double, Double) -- (mean, var)
-type Classifier a = (a, Double, [Statistics])
+type Class a = (a, Double, [Statistics])
 -- Wow! Type inference is amazing. I assumed that because I added a type parameter it
 -- would need to be specified everywhere but apparently it _just works_
 -- I should still maybe consider making this a data type
@@ -169,12 +169,12 @@ pdfNorm val (mean, var)
           expFac   = exp ((-(val-mean) ** 2) / (2*var))
 
 
-normFold :: [Double] -> Classifier a -> (a, Double)
+normFold :: [Double] -> Class a -> (a, Double)
 normFold atts (cls, prob, attstats) = (cls, normed)
     where normed = foldl (*) prob (zipWith pdfNorm atts attstats)
 
 -- Given a list of classifiers and datum, will attempt to classify the datum.
-bayes :: (Functor f, Foldable f) => f (Classifier a) -> [Double] -> a
+bayes :: (Functor f, Foldable f) => f (Class a) -> [Double] -> a
 bayes classes atts = selector (fmap (normFold atts) classes)
 
 -- This is a really handsome function :)
