@@ -24,10 +24,10 @@ baseballStats = decode NoHeader
 main :: IO ()
 main = do
     csvData <- BL.readFile "batting.csv"
-    let sums = F.foldr mapper2 M.empty (baseballStats csvData)
+    let sums = F.foldr mapper M.empty (baseballStats csvData)
     let total = foldr totaler 0 sums
     let bayesTestList = sumMapToStats total sums
-    let cls = bayes bayesTestList [1900,50] -- Arbitrary values not corresponding to any
+    let cls = bayes bayesTestList [150] -- Arbitrary values not corresponding to any
                                             -- real player
 
     -- Testing with chicken feed to weight data indicates reasonable results for
@@ -56,10 +56,10 @@ main = do
     putStrLn $ "team was " ++ (show cls)
     -- Almost by necessity you need a function to unpack the data to feed it into your
     -- functions. I felt that tuple unpacking was simpler than learning cassava further.
-    where mapper (_,_,team,atBats) = applyDatum team atBats -- Testing on just atBats
+    where mapper (_,_,team,atBats) = applyDatum team (fromIntegral atBats)
           mapper2 (_,year,team,atBats) = applyData team [year,atBats] -- atBats and Years
-          chickmap (_,wgt,feed) = applyDatum feed wgt
-          totaler (players,_) = (+) players -- Totals all players
+          chickmap (_,wgt,feed) = applyDatum feed (fromIntegral wgt)
+          totaler (players,_) = (+) players -- Totals
 
 ---------------------
 -- FORMATTING DATA --
@@ -67,19 +67,19 @@ main = do
 
 -- Function that takes the map with key as the class and value as the summed attribute data
 -- and translates that into 
-sumMapToStats total = (map (sumsToStats (fromIntegral total)) . cleanList . M.toList)
+sumMapToStats total = (map (sumsToStats (total)) . cleanList . M.toList)
 
 -- Special function for "cleaning" the tuples produced in this
-cleanTuple :: (Integral b, Num d) => (a,(b,[(b,b)])) -> (a,d,[(d,d)])
-cleanTuple (a,(b,c)) = (a,fromIntegral b,fmap (\(x,y) -> (fI x,fI y)) c)
-    where fI = fromIntegral
+cleanTuple :: (a,(b,c)) -> (a,b,c)
+cleanTuple (a,(b,c)) = (a,b,c)
 
+cleanList :: (Functor f) => f (a,(b,c)) -> f (a,b,c)
 cleanList = fmap cleanTuple
 
 -- varFromMeanPair take Integrals by necessity because the input from the baseball
 -- data was Int. This is bad, but I'm not sure how to generalize it. My Type fu is 
 -- too weak.
-sumsToStats :: (Floating a) => a -> (c, a, [(a,a)]) -> (c, a, [(a,a)])
+sumsToStats :: (Floating a) => a -> (b, a, [(a,a)]) -> (b, a, [(a,a)])
 sumsToStats tot (cls, num, prb) = (cls, num/tot, (map (varMeanFromPair num) prb))
 
 -- takes a parameter and the value at a certain key, applies a function to those
@@ -165,9 +165,9 @@ mean xs = (sum xs) / (fromIntegral (length xs))
 meanFromSum elements sum = sum / elements
 varFromSums elements sum sumSquared = (sumSquared - (sum^2)/elements) / (elements - 1)
 
-varMeanFromSums :: (Floating b) => b -> b -> b -> (b,b)
+varMeanFromSums :: (Floating a) => a -> a -> a -> (a,a)
 varMeanFromSums n sum sumSq = 
     (meanFromSum n (sum),varFromSums n (sum) (sumSq))
 
-varMeanFromPair :: (Floating b) => b -> (b,b) -> (b,b)
+varMeanFromPair :: (Floating a) => a -> (a,a) -> (a,a)
 varMeanFromPair n (sum,sumSq) = varMeanFromSums n sum sumSq
