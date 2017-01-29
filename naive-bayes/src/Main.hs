@@ -5,22 +5,14 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Vector as V
 import qualified Data.Map.Strict as M
 import qualified Data.Foldable as F
--- from cassava
 import Data.Csv.Streaming
 
 -- a simple type alias for data
 type BaseballStats = (BL.ByteString, Int, BL.ByteString, Int)
-type ChickenStats = (Int, Int, BL.ByteString)
 type SynthStats = (BL.ByteString, Double, Double, Int)
 
 synthStats :: BL.ByteString -> Records SynthStats
 synthStats = decode NoHeader
-
-chickenStats :: BL.ByteString -> Records ChickenStats
-chickenStats = decode NoHeader
-
-fourth :: (a,b,c,d) -> d
-fourth (_,_,_,d) = d
 
 baseballStats :: BL.ByteString -> Records BaseballStats
 baseballStats = decode NoHeader
@@ -31,34 +23,14 @@ main = do
     let sums = F.foldr mapper2 M.empty (baseballStats csvData)
     let total = foldr totaler 0 sums
     let bayesTestList = sumMapToStats total sums
-    let cls = bayes bayesTestList [1988,100] -- Arbitrary values not corresponding to any
-                                            -- real player
+    let cls = bayes bayesTestList [1988,100]
 
     -- Testing with synthetic data works I guess
     synthData <- BL.readFile "synth.te.csv"
     let synthsums = F.foldr synth M.empty (synthStats synthData)
     let synthtot = foldr totaler 0 synthsums
     let synthTest = sumMapToStats synthtot synthsums
-    let normedChick = fmap (normFold [0.25,0.25]) synthTest
     let clsnum = bayes synthTest [(-0.45),0.825]
-    --putStrLn $ "synth total" ++ (show synthtot)
-    --putStrLn $ "synthen stuff " ++ (show synthTest)
-    
-    -- These are the intermediate lists/calculations. Useful for testing.
-{-
-    let list = M.toList sums
-    let cleanedList = cleanList list
-    let statList = map (sumsToStats total) cleanedList
-    let normFolded = fmap (normFold [1949,50]) statList
-
-
-    -- Intermediate print statements.
-
-    putStrLn $ "Pre-cleaning \n" ++ (show list)
-    putStrLn $ "Post-cleaning \n" ++ (show cleanedList)
-    putStrLn $ "After statification \n" ++ (show statList)
-    putStrLn $ "After norming (this would be done by bayes \n" ++ (show normFolded)
- -}   
 
     putStrLn $ "synth class was " ++ (show clsnum)
     putStrLn $ "team was " ++ (show cls)
@@ -68,7 +40,6 @@ main = do
     -- It's also convenient to just define these functions in a where statement I guess.
     -- I use fromIntegral so that the rest of the functions can work on Floating or Num.
     where mapper (_,_,team,atBats) = applyDatum team (fromIntegral atBats)
-          -- When I use years I end up getting NaN's going from sums to stats.
           mapper2 (_,year,team,atBats) = applyData team [fromIntegral year,fromIntegral atBats]
           chickmap (_,wgt,feed) = applyDatum feed (fromIntegral wgt)
           synth (_,x,y,c) = applyData c [x,y]
@@ -89,9 +60,6 @@ cleanTuple (a,(b,c)) = (a,b,c)
 cleanList :: (Functor f) => f (a,(b,c)) -> f (a,b,c)
 cleanList = fmap cleanTuple
 
--- varFromMeanPair take Integrals by necessity because the input from the baseball
--- data was Int. This is bad, but I'm not sure how to generalize it. My Type fu is 
--- too weak.
 sumsToStats :: (Floating a) => a -> (b, a, [(a,a)]) -> (b, a, [(a,a)])
 sumsToStats tot (cls, num, prb) = (cls, num/tot, (map (varMeanFromPair num) prb))
 
@@ -112,7 +80,6 @@ summer val Nothing = (1,[(val,val^2)])
 summer val (Just (num,list)) = (num+1,fmap (sumAndSqSum val) list)
 
 -- Sums a list of elements and counts the number of elements
--- This would be used if you had more than one attributes to sum up
 listSummer :: (Num a) => [a] -> Maybe (a,[(a,a)]) -> (a,[(a,a)])
 listSummer vals Nothing = (1,initList)
     where initList = fmap (\x -> (x,x^2)) vals -- In case of an empty key
@@ -137,7 +104,7 @@ applyData = applyToKey listSummer
 ----------------------------
 
 type Statistics = (Double, Double) -- (mean, var)
-type Class a = (a, Double, [Statistics])
+type Class a = (a, Double, [Statistics]) -- (cls, p(cls), feature statistics)
 -- Wow! Type inference is amazing. I assumed that because I added a type parameter it
 -- would need to be specified everywhere but apparently it _just works_
 -- I should still maybe consider making this a data type
@@ -153,7 +120,6 @@ maxPairr (x, a) (y, b)
 selector :: (Foldable f) => f (s, Double) -> s
 selector pairs = fst (foldl1 maxPairr pairs)
 
--- Finds the normal probability density function.
 {-
 pdfNorm :: (Floating a) => a -> (a,a) -> a
 pdfNorm val (mean, var) = firstFac * expFac
@@ -161,6 +127,7 @@ pdfNorm val (mean, var) = firstFac * expFac
           expFac   = exp ((-(val-mean) ** 2) / (2*var))
 -}
 
+-- Finds the normal probability density function.
 pdfNorm :: (Floating a, Ord a) => a -> (a,a) -> a
 pdfNorm val (mean, var)
     | var > 0 = firstFac * expFac
@@ -186,7 +153,6 @@ mean xs = (sum xs) / (fromIntegral (length xs))
 -----------------
 
 meanFromSum elements sum = sum / elements
--- Divide by zero if there's only one element?
 varFromSums elements sum sumSquared = (sumSquared - (sum^2)/elements) / (elements - 1)
 
 varMeanFromSums :: (Floating a) => a -> a -> a -> (a,a)
